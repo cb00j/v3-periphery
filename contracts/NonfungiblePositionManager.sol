@@ -77,7 +77,9 @@ contract NonfungiblePositionManager is
     }
 
     /// @inheritdoc INonfungiblePositionManager
-    function positions(uint256 tokenId)
+    function positions(
+        uint256 tokenId
+    )
         external
         view
         override
@@ -125,19 +127,17 @@ contract NonfungiblePositionManager is
     }
 
     /// @inheritdoc INonfungiblePositionManager
-    function mint(MintParams calldata params)
+    function mint(
+        MintParams calldata params
+    )
         external
         payable
         override
         checkDeadline(params.deadline)
-        returns (
-            uint256 tokenId,
-            uint128 liquidity,
-            uint256 amount0,
-            uint256 amount1
-        )
+        returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         IUniswapV3Pool pool;
+        // 计算流动性L
         (liquidity, amount0, amount1, pool) = addLiquidity(
             AddLiquidityParams({
                 token0: params.token0,
@@ -153,18 +153,19 @@ contract NonfungiblePositionManager is
             })
         );
 
+        // 铸造 ERC721 token 给用户，用来代表用户所持有的流动性
         _mint(params.recipient, (tokenId = _nextId++));
 
         bytes32 positionKey = PositionKey.compute(address(this), params.tickLower, params.tickUpper);
         (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(positionKey);
 
         // idempotent set
-        uint80 poolId =
-            cachePoolKey(
-                address(pool),
-                PoolAddress.PoolKey({token0: params.token0, token1: params.token1, fee: params.fee})
-            );
+        uint80 poolId = cachePoolKey(
+            address(pool),
+            PoolAddress.PoolKey({token0: params.token0, token1: params.token1, fee: params.fee})
+        );
 
+        // 用 ERC721 的 token ID 作为键，将用户提供流动性的元信息保存起来
         _positions[tokenId] = Position({
             nonce: 0,
             operator: address(0),
@@ -195,16 +196,14 @@ contract NonfungiblePositionManager is
     function baseURI() public pure override returns (string memory) {}
 
     /// @inheritdoc INonfungiblePositionManager
-    function increaseLiquidity(IncreaseLiquidityParams calldata params)
+    function increaseLiquidity(
+        IncreaseLiquidityParams calldata params
+    )
         external
         payable
         override
         checkDeadline(params.deadline)
-        returns (
-            uint128 liquidity,
-            uint256 amount0,
-            uint256 amount1
-        )
+        returns (uint128 liquidity, uint256 amount0, uint256 amount1)
     {
         Position storage position = _positions[params.tokenId];
 
@@ -254,7 +253,9 @@ contract NonfungiblePositionManager is
     }
 
     /// @inheritdoc INonfungiblePositionManager
-    function decreaseLiquidity(DecreaseLiquidityParams calldata params)
+    function decreaseLiquidity(
+        DecreaseLiquidityParams calldata params
+    )
         external
         payable
         override
@@ -306,17 +307,14 @@ contract NonfungiblePositionManager is
     }
 
     /// @inheritdoc INonfungiblePositionManager
-    function collect(CollectParams calldata params)
-        external
-        payable
-        override
-        isAuthorizedForToken(params.tokenId)
-        returns (uint256 amount0, uint256 amount1)
-    {
+    function collect(
+        CollectParams calldata params
+    ) external payable override isAuthorizedForToken(params.tokenId) returns (uint256 amount0, uint256 amount1) {
         require(params.amount0Max > 0 || params.amount1Max > 0);
         // allow collecting to the nft position manager address with address 0
         address recipient = params.recipient == address(0) ? address(this) : params.recipient;
 
+        // NFT的tokenId来查询对应的position信息
         Position storage position = _positions[params.tokenId];
 
         PoolAddress.PoolKey memory poolKey = _poolIdToPoolKey[position.poolId];
@@ -328,8 +326,9 @@ contract NonfungiblePositionManager is
         // trigger an update of the position fees owed and fee growth snapshots if it has any liquidity
         if (position.liquidity > 0) {
             pool.burn(position.tickLower, position.tickUpper, 0);
-            (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) =
-                pool.positions(PositionKey.compute(address(this), position.tickLower, position.tickUpper));
+            (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(
+                PositionKey.compute(address(this), position.tickLower, position.tickUpper)
+            );
 
             tokensOwed0 += uint128(
                 FullMath.mulDiv(
@@ -351,11 +350,10 @@ contract NonfungiblePositionManager is
         }
 
         // compute the arguments to give to the pool#collect method
-        (uint128 amount0Collect, uint128 amount1Collect) =
-            (
-                params.amount0Max > tokensOwed0 ? tokensOwed0 : params.amount0Max,
-                params.amount1Max > tokensOwed1 ? tokensOwed1 : params.amount1Max
-            );
+        (uint128 amount0Collect, uint128 amount1Collect) = (
+            params.amount0Max > tokensOwed0 ? tokensOwed0 : params.amount0Max,
+            params.amount1Max > tokensOwed1 ? tokensOwed1 : params.amount1Max
+        );
 
         // the actual amounts collected are returned
         (amount0, amount1) = pool.collect(
